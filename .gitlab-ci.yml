@@ -1,0 +1,34 @@
+image: privacybydesign/golang:latest
+
+cache:
+  key: $CI_COMMIT_REF_SLUG
+  paths:
+    - /go/pkg/mod
+
+stages:
+  - test
+  - build
+
+variables:
+  GOOS: linux
+  GOARCH: amd64
+  CGO_ENABLED: 0
+  OUTPUT_NAME: atumd-${CI_COMMIT_REF_SLUG}-${GOOS}-${GOARCH}
+
+before_script:
+  - set -euxo pipefail
+  - go get
+
+unit_tests:
+  stage: test
+  script:
+  - go test ./...
+
+binaries:
+  stage: build
+  artifacts:
+    paths:
+      - artifacts/*
+  script:
+    - mkdir -p artifacts
+    - go build -a -ldflags '-extldflags "-static"' -o "artifacts/$OUTPUT_NAME" .
