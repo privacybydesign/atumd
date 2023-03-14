@@ -5,6 +5,7 @@ import (
 	"github.com/bwesterb/go-atum/stamper"
 	"github.com/bwesterb/go-pow"    // imported as pow
 	"github.com/bwesterb/go-xmssmt" // imported as xmssmt
+	"github.com/go-chi/cors"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -83,6 +84,12 @@ type Conf struct {
 	//
 	// NOTE, these are publicly exposed at /metrics.
 	EnableMetrics bool `yaml:"enableMetrics"`
+
+	// File containing TLS certificate
+	TLSCertFile string `yaml:"tlsCertFile"`
+
+	// File containing TLS private key
+	TLSKeyFile string `yaml:"tlsKeyFile"`
 }
 
 type AlgPkPair struct {
@@ -433,7 +440,7 @@ func main() {
 	conf.XMSSMTKeyPath = "xmssmt.key"
 	conf.Ed25519KeyPath = "ed25519.key"
 	conf.BindAddr = ":8080"
-	conf.XMSSMTAlg = "XMSSMT-SHAKE_40/4_512"
+	conf.XMSSMTAlg = "XMSSMT-SHAKE_40/4_256"
 	var thousand uint32 = 1000
 	conf.XMSSMTBorrowedSeqNos = &thousand
 	conf.Ed25519PowDifficulty = nil
@@ -512,9 +519,14 @@ func main() {
 		trustedPkLut[pair.String()] = true
 	}
 
+	c := cors.New(cors.Options{
+		AllowedOrigins: []string{"*"},
+		AllowedMethods: []string{http.MethodGet, http.MethodPost},
+	})
+
 	// set up HTTP server
-	http.HandleFunc("/checkPublicKey", checkPkHandler)
-	http.HandleFunc("/", rootHandler)
+	http.Handle("/checkPublicKey", c.Handler(http.HandlerFunc(checkPkHandler)))
+	http.Handle("/", c.Handler(http.HandlerFunc(rootHandler)))
 
 	if conf.EnableMetrics {
 		registerMetrics()
@@ -539,8 +551,13 @@ func main() {
 	}()
 
 	// Run HTTP server
-	log.Printf("Listening on %s", conf.BindAddr)
-	log.Fatal(http.ListenAndServe(conf.BindAddr, nil))
+	if conf.TLSCertFile != "" {
+		log.Printf("Listening on %s with TLS enabled", conf.BindAddr)
+		log.Fatal(http.ListenAndServeTLS(conf.BindAddr, conf.TLSCertFile, conf.TLSKeyFile, nil))
+	} else {
+		log.Printf("Listening on %s", conf.BindAddr)
+		log.Fatal(http.ListenAndServe(conf.BindAddr, nil))
+	}
 }
 
 func loadXMSSMTKey() {
