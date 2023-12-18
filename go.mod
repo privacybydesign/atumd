@@ -8,7 +8,7 @@ require (
 	github.com/bwesterb/go-xmssmt v1.5.2
 	github.com/go-chi/cors v1.2.1
 	github.com/prometheus/client_golang v1.17.0
-	golang.org/x/crypto v0.14.0
+	golang.org/x/crypto v0.17.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
@@ -31,6 +31,6 @@ require (
 	github.com/templexxx/xorsimd v0.4.1 // indirect
 	github.com/timshannon/bolthold v0.0.0-20210913165410-232392fc8a6a // indirect
 	go.etcd.io/bbolt v1.3.6 // indirect
-	golang.org/x/sys v0.13.0 // indirect
+	golang.org/x/sys v0.15.0 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
 )
