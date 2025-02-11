@@ -442,6 +442,13 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
+	// Set status code 200 and content-type
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "text/plain")
+	fmt.Fprintln(w, "OK")
+}
+
 func main() {
 	var confPath string
 
@@ -549,6 +556,7 @@ func main() {
 	// set up HTTP server
 	http.Handle("/checkPublicKey", c.Handler(http.HandlerFunc(checkPkHandler)))
 	http.Handle("/", c.Handler(http.HandlerFunc(rootHandler)))
+	http.Handle("/health", c.Handler(http.HandlerFunc(healthCheckHandler)))
 
 	if conf.EnableMetrics {
 		registerMetrics()
