@@ -65,7 +65,7 @@ jobs:
           image: local/atumd:scan
           only-fixed: true
           fail-build: true
-          severity-cutoff: high
+          severity-cutoff: critical
           output-format: sarif
 
       - name: Upload Anchore scan SARIF report
