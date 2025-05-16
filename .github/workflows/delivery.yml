@@ -10,7 +10,7 @@ on:
     types: [published]
   schedule:
     # Run every monday on 9:00 in the morning (UTC).
-    - cron: '0 9 * * 1'
+    - cron: "0 9 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -78,7 +78,7 @@ jobs:
 
       - name: Push image to GitHub Container Registry
         uses: docker/build-push-action@v5
-        if: ${{ github.event_name == 'release' || github.event_name == 'push' }}
+        if: ${{ ! contains(fromJSON('["schedule", "pull_request"]'), github.event_name) }}
         with:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
