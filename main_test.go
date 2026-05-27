@@ -11,6 +11,7 @@ import (
 	"github.com/bwesterb/go-atum"
 	"github.com/bwesterb/go-pow"
 	"golang.org/x/crypto/ed25519"
+	"gopkg.in/yaml.v2"
 )
 
 // TestSignSmoke exercises the timestamping endpoint (POST /) end-to-end with
@@ -77,5 +78,49 @@ func TestSignSmoke(t *testing.T) {
 	}
 	if !ok {
 		t.Fatal("signature did not verify")
+	}
+}
+
+// TestRequestBodyLimit verifies the 4 KiB MaxBytesReader cap rejects oversize
+// POST bodies with 413 instead of silently allocating arbitrarily large buffers.
+func TestRequestBodyLimit(t *testing.T) {
+	rr := httptest.NewRecorder()
+	body := bytes.Repeat([]byte("A"), 8*1024)
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	requestHandler(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversize body: status %d, want %d", rr.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+// TestHealthCheckContentType is a regression test for the WriteHeader/Header
+// ordering bug: setting headers after WriteHeader silently drops them.
+func TestHealthCheckContentType(t *testing.T) {
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/healthcheck", nil)
+	healthCheckHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200", rr.Code)
+	}
+	if got := rr.Header().Get("Content-Type"); got != "text/plain" {
+		t.Fatalf("Content-Type = %q, want %q", got, "text/plain")
+	}
+}
+
+// TestXMSSMTBorrowedSeqNosYAMLTag is a regression test for the `taml` →
+// `yaml` struct-tag typo: the xmssmtBorrowedSeqNos config key was silently
+// ignored before the fix.
+func TestXMSSMTBorrowedSeqNosYAMLTag(t *testing.T) {
+	var c Conf
+	if err := yaml.Unmarshal([]byte("xmssmtBorrowedSeqNos: 42\n"), &c); err != nil {
+		t.Fatalf("yaml.Unmarshal: %v", err)
+	}
+	if c.XMSSMTBorrowedSeqNos == nil {
+		t.Fatal("XMSSMTBorrowedSeqNos is nil — yaml tag not honored")
+	}
+	if *c.XMSSMTBorrowedSeqNos != 42 {
+		t.Fatalf("XMSSMTBorrowedSeqNos = %d, want 42", *c.XMSSMTBorrowedSeqNos)
 	}
 }
