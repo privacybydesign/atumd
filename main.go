@@ -104,6 +104,7 @@ type AlgPkPair struct {
 type yamlBinary []byte
 
 const ErrorUnsupportedSigAlg atum.ErrorCode = "unsupported signature algorithm"
+const ErrorInternalError atum.ErrorCode = "internal error"
 
 func (yb *yamlBinary) UnmarshalText(buf []byte) error {
 	buf, err := base64.StdEncoding.DecodeString(string(buf))
@@ -232,23 +233,31 @@ func computePowNonces() {
 	h.Read(nonce)
 	log.Printf("Proof of work nonce: %s",
 		base64.StdEncoding.EncodeToString(nonce))
-	serverInfoLock.Lock()
-	defer serverInfoLock.Unlock()
-
+	// Build a fresh map and publish it by replacing the reference rather than
+	// mutating the existing one in place.  getServerInfo hands out a struct
+	// copy that shares this map, and handlers read it without holding the
+	// lock; mutating in place would race with those reads (concurrent map
+	// read and map write).  A wholesale replacement under the lock means
+	// readers always observe an immutable snapshot.
+	powReqs := make(map[atum.SignatureAlgorithm]pow.Request)
 	if conf.Ed25519PowDifficulty != nil {
-		serverInfo.RequiredProofOfWork[atum.Ed25519] = pow.Request{
+		powReqs[atum.Ed25519] = pow.Request{
 			Difficulty: *conf.Ed25519PowDifficulty,
 			Nonce:      nonce,
 			Alg:        pow.Sha2BDay,
 		}
 	}
 	if conf.XMSSMTPowDifficulty != nil {
-		serverInfo.RequiredProofOfWork[atum.XMSSMT] = pow.Request{
+		powReqs[atum.XMSSMT] = pow.Request{
 			Difficulty: *conf.XMSSMTPowDifficulty,
 			Nonce:      nonce,
 			Alg:        pow.Sha2BDay,
 		}
 	}
+
+	serverInfoLock.Lock()
+	defer serverInfoLock.Unlock()
+	serverInfo.RequiredProofOfWork = powReqs
 }
 
 func powNonceRevolver() {
@@ -343,7 +352,13 @@ func processAtumRequest(req atum.Request) (resp atum.Response) {
 			ts, err := stamper.CreateXMSSMTTimestamp(
 				xmssmtSk, xmssmtPk, tsTime, req.Nonce)
 			if err != nil {
+				// ts is nil on error; falling through would nil-deref at
+				// resp.Stamp.ServerUrl below.  Return an error to the client
+				// instead of crashing the request.
 				log.Printf("CreateXMSSMTTimestamp: %v", err)
+				resp.SetError(ErrorInternalError)
+				resp.Info = info
+				return
 			}
 			resp.Stamp = ts
 		default:
