@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/bwesterb/go-atum"
 	"github.com/bwesterb/go-pow"
@@ -78,4 +82,51 @@ func TestSignSmoke(t *testing.T) {
 	if !ok {
 		t.Fatal("signature did not verify")
 	}
+}
+
+// TestServerInfoConcurrentAccess guards against the data race between
+// powNonceRevolver (which calls computePowNonces) and the request/serverInfo
+// handlers (which read serverInfo.RequiredProofOfWork via getServerInfo).
+// Run with -race: before the fix, the in-place map mutation in
+// computePowNonces races with the map reads here.
+func TestServerInfoConcurrentAccess(t *testing.T) {
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
+
+	conf = Conf{PowWindow: time.Hour, PowKey: make([]byte, 32)}
+	diff := uint32(16)
+	conf.Ed25519PowDifficulty = &diff
+	conf.XMSSMTPowDifficulty = &diff
+	serverInfo = atum.ServerInfo{
+		RequiredProofOfWork: make(map[atum.SignatureAlgorithm]pow.Request),
+	}
+
+	const iters = 200
+	var wg sync.WaitGroup
+
+	// Writers: mimic the nonce revolver.
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iters; j++ {
+				computePowNonces()
+			}
+		}()
+	}
+
+	// Readers: mimic serverInfoHandler / processAtumRequest reading the map.
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iters; j++ {
+				info := getServerInfo()
+				_, _ = json.Marshal(info)
+				_ = info.RequiredProofOfWork[atum.XMSSMT]
+			}
+		}()
+	}
+
+	wg.Wait()
 }
