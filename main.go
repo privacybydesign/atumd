@@ -65,7 +65,7 @@ type Conf struct {
 
 	// Number of signature sequence numbers to preallocate.  If the server
 	// crashes, this is the amount of signatures lost.
-	XMSSMTBorrowedSeqNos *uint32 `taml:"xmssmtBorrowedSeqNos"`
+	XMSSMTBorrowedSeqNos *uint32 `yaml:"xmssmtBorrowedSeqNos"`
 
 	// Proof of Work difficulty for Ed25519.
 	Ed25519PowDifficulty *uint32 `yaml:"ed25519PowDifficulty"`
@@ -385,8 +385,10 @@ func processAtumRequest(req atum.Request) (resp atum.Response) {
 func requestHandler(w http.ResponseWriter, r *http.Request) {
 	var req atum.Request
 
+	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
 	reqBytes, err := io.ReadAll(r.Body)
 	if err != nil {
+		http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 	if err = json.Unmarshal(reqBytes, &req); err != nil {
@@ -459,8 +461,8 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 
 func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	// Set status code 200 and content-type
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
 	fmt.Fprintln(w, "OK")
 }
 
@@ -596,12 +598,20 @@ func main() {
 	}()
 
 	// Run HTTP server
+	srv := &http.Server{
+		Addr:              conf.BindAddr,
+		Handler:           nil,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	if conf.TLSCertFile != "" {
 		log.Printf("Listening on %s with TLS enabled", conf.BindAddr)
-		log.Fatal(http.ListenAndServeTLS(conf.BindAddr, conf.TLSCertFile, conf.TLSKeyFile, nil))
+		log.Fatal(srv.ListenAndServeTLS(conf.TLSCertFile, conf.TLSKeyFile))
 	} else {
 		log.Printf("Listening on %s", conf.BindAddr)
-		log.Fatal(http.ListenAndServe(conf.BindAddr, nil))
+		log.Fatal(srv.ListenAndServe())
 	}
 }
 
