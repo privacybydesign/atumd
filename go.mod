@@ -2,7 +2,7 @@ module github.com/bwesterb/atumd
 
 go 1.25.0
 
-toolchain go1.25.10
+toolchain go1.25.11
 
 require (
 	github.com/bwesterb/go-atum v1.1.5
@@ -10,7 +10,7 @@ require (
 	github.com/bwesterb/go-xmssmt v1.5.2
 	github.com/go-chi/cors v1.2.2
 	github.com/prometheus/client_golang v1.23.2
-	golang.org/x/crypto v0.51.0
+	golang.org/x/crypto v0.52.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
@@ -34,6 +34,6 @@ require (
 	github.com/timshannon/bolthold v0.0.0-20240314194003-30aac6950928 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
-	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
