@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -110,6 +111,42 @@ func TestHealthCheckContentType(t *testing.T) {
 	}
 	if got := rr.Header().Get("Content-Type"); got != "text/plain" {
 		t.Fatalf("Content-Type = %q, want %q", got, "text/plain")
+	}
+}
+
+// TestKeyFilePermsInsecure guards the private-key file permission check that
+// both loadXMSSMTKey and loadEd25519Key rely on: a signing key that is group-
+// or world-accessible must be treated as insecure and refused, while a 0600
+// key is accepted.
+func TestKeyFilePermsInsecure(t *testing.T) {
+	cases := []struct {
+		mode os.FileMode
+		want bool
+	}{
+		{0600, false},
+		{0400, false},
+		{0640, true},
+		{0604, true},
+		{0644, true},
+		{0666, true},
+		{0700, false}, // owner-only, group/world bits clear
+	}
+	for _, c := range cases {
+		path := filepath.Join(t.TempDir(), "key")
+		if err := os.WriteFile(path, []byte("key"), 0600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if err := os.Chmod(path, c.mode); err != nil {
+			t.Fatalf("Chmod: %v", err)
+		}
+		fileInfo, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("Stat: %v", err)
+		}
+		if got := keyFilePermsInsecure(fileInfo); got != c.want {
+			t.Errorf("keyFilePermsInsecure(%#o) = %v, want %v",
+				c.mode, got, c.want)
+		}
 	}
 }
 

@@ -615,6 +615,13 @@ func main() {
 	}
 }
 
+// keyFilePermsInsecure reports whether a private key file is group- or
+// world-accessible, in which case atumd refuses to load it.  The check is not
+// perfect (ie. symlinks), but it helps a bit.
+func keyFilePermsInsecure(fileInfo os.FileInfo) bool {
+	return fileInfo.Mode().Perm()&077 != 0
+}
+
 func loadXMSSMTKey() {
 	fileInfo, err := os.Stat(conf.XMSSMTKeyPath)
 
@@ -633,8 +640,7 @@ func loadXMSSMTKey() {
 		log.Fatalf("os.Stat(%s): %v", conf.XMSSMTKeyPath, err)
 	}
 
-	// This check is not perfect (ie. symlinks), but it helps a bit.
-	if fileInfo.Mode().Perm()&077 != 0 {
+	if keyFilePermsInsecure(fileInfo) {
 		log.Fatalf("I don't trust the permission %#o on %s",
 			fileInfo.Mode().Perm(), conf.XMSSMTKeyPath)
 	}
@@ -655,7 +661,7 @@ func loadXMSSMTKey() {
 }
 
 func loadEd25519Key() {
-	_, err := os.Stat(conf.Ed25519KeyPath)
+	fileInfo, err := os.Stat(conf.Ed25519KeyPath)
 	if os.IsNotExist(err) {
 		log.Printf("%s does not exist. Generating key ...", conf.Ed25519KeyPath)
 		ed25519Pk, ed25519Sk, err = ed25519.GenerateKey(nil)
@@ -671,6 +677,13 @@ func loadEd25519Key() {
 
 	if err != nil {
 		log.Fatalf("os.Stat(%s): %v", conf.Ed25519KeyPath, err)
+	}
+
+	// Mirror the guard on the XMSSMT key: refuse a private key that is
+	// group- or world-accessible.
+	if keyFilePermsInsecure(fileInfo) {
+		log.Fatalf("I don't trust the permission %#o on %s",
+			fileInfo.Mode().Perm(), conf.Ed25519KeyPath)
 	}
 
 	buf, err := os.ReadFile(conf.Ed25519KeyPath)
