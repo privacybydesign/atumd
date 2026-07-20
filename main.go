@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -615,6 +616,38 @@ func main() {
 	}
 }
 
+// keyFilePermsInsecure reports whether a private key file is accessible to
+// others, in which case atumd refuses to load it.  Any world bits, group-write
+// or group-execute are refused.  Group-read is accepted only when the file's
+// group is one of our own: that grants nobody access we don't already have,
+// and it is how Kubernetes exposes root-owned secrets to non-root containers
+// (fsGroup yields mode 0440).  The check is not perfect (ie. symlinks), but it
+// helps a bit.
+func keyFilePermsInsecure(fileInfo os.FileInfo) bool {
+	perm := fileInfo.Mode().Perm()
+	if perm&037 != 0 {
+		return true
+	}
+	if perm&040 == 0 {
+		return false
+	}
+	st, ok := fileInfo.Sys().(*syscall.Stat_t)
+	return !ok || !processInGroup(st.Gid)
+}
+
+// processInGroup reports whether gid is the process' effective or one of its
+// supplementary group ids.
+func processInGroup(gid uint32) bool {
+	if int(gid) == os.Getegid() {
+		return true
+	}
+	groups, err := os.Getgroups()
+	if err != nil {
+		return false
+	}
+	return slices.Contains(groups, int(gid))
+}
+
 func loadXMSSMTKey() {
 	fileInfo, err := os.Stat(conf.XMSSMTKeyPath)
 
@@ -633,8 +666,7 @@ func loadXMSSMTKey() {
 		log.Fatalf("os.Stat(%s): %v", conf.XMSSMTKeyPath, err)
 	}
 
-	// This check is not perfect (ie. symlinks), but it helps a bit.
-	if fileInfo.Mode().Perm()&077 != 0 {
+	if keyFilePermsInsecure(fileInfo) {
 		log.Fatalf("I don't trust the permission %#o on %s",
 			fileInfo.Mode().Perm(), conf.XMSSMTKeyPath)
 	}
@@ -655,7 +687,7 @@ func loadXMSSMTKey() {
 }
 
 func loadEd25519Key() {
-	_, err := os.Stat(conf.Ed25519KeyPath)
+	fileInfo, err := os.Stat(conf.Ed25519KeyPath)
 	if os.IsNotExist(err) {
 		log.Printf("%s does not exist. Generating key ...", conf.Ed25519KeyPath)
 		ed25519Pk, ed25519Sk, err = ed25519.GenerateKey(nil)
@@ -671,6 +703,13 @@ func loadEd25519Key() {
 
 	if err != nil {
 		log.Fatalf("os.Stat(%s): %v", conf.Ed25519KeyPath, err)
+	}
+
+	// Mirror the guard on the XMSSMT key: refuse a private key with
+	// permissions that expose it to others.
+	if keyFilePermsInsecure(fileInfo) {
+		log.Fatalf("I don't trust the permission %#o on %s",
+			fileInfo.Mode().Perm(), conf.Ed25519KeyPath)
 	}
 
 	buf, err := os.ReadFile(conf.Ed25519KeyPath)

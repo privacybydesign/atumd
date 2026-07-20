@@ -8,7 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"slices"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -110,6 +113,97 @@ func TestHealthCheckContentType(t *testing.T) {
 	}
 	if got := rr.Header().Get("Content-Type"); got != "text/plain" {
 		t.Fatalf("Content-Type = %q, want %q", got, "text/plain")
+	}
+}
+
+// TestKeyFilePermsInsecure guards the private-key file permission check that
+// both loadXMSSMTKey and loadEd25519Key rely on: a signing key exposed to
+// other users must be refused, while owner-only keys — and keys group-readable
+// by the process' own group, as delivered by Kubernetes fsGroup — are
+// accepted.  Files created here are group-owned by one of our own groups, so
+// group-read is trusted; the foreign-group half of the check is covered by
+// TestKeyFilePermsInsecureForeignGroup.
+func TestKeyFilePermsInsecure(t *testing.T) {
+	cases := []struct {
+		mode os.FileMode
+		want bool
+	}{
+		{0600, false},
+		{0400, false},
+		{0700, false}, // owner-only, group/world bits clear
+		{0640, false}, // group-read by our own group
+		{0440, false}, // ditto; the Kubernetes fsGroup shape
+		{0660, true},  // group-write
+		{0650, true},  // group-execute
+		{0604, true},  // world-read
+		{0644, true},
+		{0666, true},
+	}
+	for _, c := range cases {
+		path := filepath.Join(t.TempDir(), "key")
+		if err := os.WriteFile(path, []byte("key"), 0600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if err := os.Chmod(path, c.mode); err != nil {
+			t.Fatalf("Chmod: %v", err)
+		}
+		fileInfo, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("Stat: %v", err)
+		}
+		if got := keyFilePermsInsecure(fileInfo); got != c.want {
+			t.Errorf("keyFilePermsInsecure(%#o) = %v, want %v",
+				c.mode, got, c.want)
+		}
+	}
+}
+
+// fakeKeyFileInfo lets TestKeyFilePermsInsecureForeignGroup control the file's
+// group id, which cannot be done with real files without root.
+type fakeKeyFileInfo struct {
+	mode os.FileMode
+	sys  any
+}
+
+func (f fakeKeyFileInfo) Name() string       { return "key" }
+func (f fakeKeyFileInfo) Size() int64        { return 0 }
+func (f fakeKeyFileInfo) Mode() os.FileMode  { return f.mode }
+func (f fakeKeyFileInfo) ModTime() time.Time { return time.Time{} }
+func (f fakeKeyFileInfo) IsDir() bool        { return false }
+func (f fakeKeyFileInfo) Sys() any           { return f.sys }
+
+// TestKeyFilePermsInsecureForeignGroup covers the group-ownership half of the
+// check: group-read is only trusted when the file's group is one of the
+// process' own.
+func TestKeyFilePermsInsecureForeignGroup(t *testing.T) {
+	ownGid := uint32(os.Getegid())
+	groups, err := os.Getgroups()
+	if err != nil {
+		t.Fatalf("Getgroups: %v", err)
+	}
+	foreignGid := ownGid + 1
+	for slices.Contains(groups, int(foreignGid)) {
+		foreignGid++
+	}
+	cases := []struct {
+		name string
+		info fakeKeyFileInfo
+		want bool
+	}{
+		{"group-read, own group",
+			fakeKeyFileInfo{0440, &syscall.Stat_t{Gid: ownGid}}, false},
+		{"group-read, foreign group",
+			fakeKeyFileInfo{0440, &syscall.Stat_t{Gid: foreignGid}}, true},
+		{"owner-only, foreign group",
+			fakeKeyFileInfo{0400, &syscall.Stat_t{Gid: foreignGid}}, false},
+		{"group-read, unknown ownership",
+			fakeKeyFileInfo{0440, nil}, true},
+	}
+	for _, c := range cases {
+		if got := keyFilePermsInsecure(c.info); got != c.want {
+			t.Errorf("%s: keyFilePermsInsecure(%#o) = %v, want %v",
+				c.name, c.info.mode, got, c.want)
+		}
 	}
 }
 
