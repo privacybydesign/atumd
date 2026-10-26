@@ -231,7 +231,7 @@ func computePowNonces() {
 	h.Write(conf.PowKey)
 	buf, _ := startOfWindow.MarshalBinary()
 	h.Write(buf)
-	h.Read(nonce)
+	_, _ = h.Read(nonce)
 	log.Printf("Proof of work nonce: %s",
 		base64.StdEncoding.EncodeToString(nonce))
 	// Build a fresh map and publish it by replacing the reference rather than
@@ -282,7 +282,7 @@ func serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 	info := getServerInfo()
 	buf, _ := json.Marshal(info)
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(buf)
+	_, _ = w.Write(buf)
 }
 
 func processAtumRequest(req atum.Request) (resp atum.Response) {
@@ -405,7 +405,7 @@ func requestHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	buf, _ := json.Marshal(resp)
-	w.Write(buf)
+	_, _ = w.Write(buf)
 }
 
 func checkPkHandler(w http.ResponseWriter, r *http.Request) {
@@ -443,7 +443,7 @@ func checkPkHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	buf, _ := json.Marshal(resp)
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(buf)
+	_, _ = w.Write(buf)
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
@@ -464,7 +464,7 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	// Set status code 200 and content-type
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintln(w, "OK")
+	_, _ = fmt.Fprintln(w, "OK")
 }
 
 func main() {
@@ -543,7 +543,9 @@ func main() {
 		xmssmtPkText, _ := xmssmtPk.MarshalText()
 		log.Printf("XMSSMT public key:  %s", xmssmtPkText)
 		if conf.XMSSMTBorrowedSeqNos != nil {
-			xmssmtSk.BorrowExactly(*conf.XMSSMTBorrowedSeqNos)
+			if err := xmssmtSk.BorrowExactly(*conf.XMSSMTBorrowedSeqNos); err != nil {
+				log.Printf("xmssmt BorrowExactly(%d): %v", *conf.XMSSMTBorrowedSeqNos, err)
+			}
 		}
 
 		// add to trusted public keys

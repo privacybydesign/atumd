@@ -244,27 +244,23 @@ func TestServerInfoConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Writers: mimic the nonce revolver.
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iters; j++ {
+	for range 2 {
+		wg.Go(func() {
+			for range iters {
 				computePowNonces()
 			}
-		}()
+		})
 	}
 
 	// Readers: mimic serverInfoHandler / processAtumRequest reading the map.
-	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iters; j++ {
+	for range 4 {
+		wg.Go(func() {
+			for range iters {
 				info := getServerInfo()
 				_, _ = json.Marshal(info)
 				_ = info.RequiredProofOfWork[atum.XMSSMT]
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
